@@ -10,7 +10,8 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.converter.scalars.ScalarsConverterFactory
 
 object RetrofitClient {
-    private const val BASE_URL = "http://10.0.2.2:13000/" // Порт для Docker через емулятор
+    //private const val BASE_URL = "http://10.0.2.2:13000/" // Порт для Docker через емулятор
+    private const val BASE_URL = "https://api.driprate.pp.ua/"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -91,5 +92,23 @@ object RetrofitClient {
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
             .create(CollectionsApi::class.java)
+    }
+
+    val metaApi: MetaApi by lazy {
+        Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+            .create(MetaApi::class.java)
+    }
+
+    val reportsApi: ReportsApi by lazy {
+        Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+            .create(ReportsApi::class.java)
     }
 }

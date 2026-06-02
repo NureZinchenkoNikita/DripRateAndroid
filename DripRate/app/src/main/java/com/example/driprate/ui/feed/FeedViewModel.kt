@@ -12,6 +12,7 @@ import com.example.driprate.data.model.CommentDTO
 import com.example.driprate.data.model.CreateCommentRequest
 import com.example.driprate.data.model.GlobalFeedResponse
 import com.example.driprate.data.model.PublicationDTO
+import com.example.driprate.data.model.CreateReportRequest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -495,6 +496,26 @@ class FeedViewModel : ViewModel() {
                 comment.copy(replies = updateLikeInTree(comment.replies, targetCommentId))
             } else {
                 comment
+            }
+        }
+    }
+
+    fun sendReport(targetId: String, targetType: String, reason: String, onComplete: (String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.reportsApi.sendReport(CreateReportRequest(targetId, targetType, reason))
+                if (response.isSuccessful) {
+                    onComplete(null)
+                } else {
+                    if (response.code() == 409) {
+                        onComplete("duplicate")
+                    } else {
+                        onComplete("error")
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("FeedViewModel", "Error sending report", e)
+                onComplete("error")
             }
         }
     }

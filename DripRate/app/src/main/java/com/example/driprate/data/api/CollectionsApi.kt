@@ -24,7 +24,7 @@ interface CollectionsApi {
     suspend fun getMyCollections(): Response<List<CollectionDTO>>
 
     @POST("api/Collections")
-    suspend fun createCollection(@Body request: CreateCollectionRequest): Response<CollectionDTO>
+    suspend fun createCollection(@Body request: CreateCollectionRequest): Response<String>
 
     @POST("api/Collections/{id}/items/{publicationId}")
     suspend fun addItemToCollection(
@@ -43,4 +43,7 @@ interface CollectionsApi {
 
     @GET("api/Collections/{id}/v2")
     suspend fun getCollectionItems(@Path("id") collectionId: String): Response<List<PublicationDTO>>
+
+    @GET("api/Collections/user/{id}")
+    suspend fun getUserCollections(@Path("id") userId: String): Response<List<CollectionDTO>>
 }

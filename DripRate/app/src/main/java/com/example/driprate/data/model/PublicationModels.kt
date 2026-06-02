@@ -21,10 +21,26 @@ data class PublicationDTO(
     val commentsCount: Int = 0,
     @SerialName("averageRating") val averageAssessment: Double? = null,
     val myAssessment: Int? = null,
-    val tags: List<String> = emptyList()
+    val tags: List<TagDTO> = emptyList(),
+    val clothes: List<WardrobeItemDTO> = emptyList()
 ) {
     val imageUrl: String? get() = imageUrls.firstOrNull()
+    val allTagNames: List<String> get() {
+        val parsed = description?.let { desc ->
+            val regex = """#([a-zA-Z0-9_\u0400-\u04FF]+)""".toRegex()
+            regex.findAll(desc).map { it.groupValues[1] }.toList()
+        } ?: emptyList()
+        val fromServer = tags.map { it.name }
+        return (parsed + fromServer).distinct()
+    }
 }
+@Serializable
+data class TagDTO(
+    val id: String = "",
+    val name: String = "",
+    val category: String? = null
+)
+
 @Serializable
 data class AssessmentDTO(
     @SerialName("userId") val userId: String,

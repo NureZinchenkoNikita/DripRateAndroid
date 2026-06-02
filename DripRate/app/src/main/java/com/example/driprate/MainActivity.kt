@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
                 var selectedUserId by remember { mutableStateOf<String?>(null) }
                 var selectedCollectionId by remember { mutableStateOf<String?>(null) }
                 var selectedCollectionName by remember { mutableStateOf("") }
+                var initialSearchQuery by remember { mutableStateOf<String?>(null) }
 
                 LaunchedEffect(authToken) {
                     if (authToken == null) {
@@ -69,21 +70,32 @@ class MainActivity : ComponentActivity() {
                                     selectedUserId = null
                                     currentScreen = "profile" 
                                 },
-                                onSearchClick = { currentScreen = "search" },
+                                onSearchClick = { 
+                                    initialSearchQuery = null
+                                    currentScreen = "search" 
+                                },
                                 onUserClick = { userId ->
                                     selectedUserId = userId
                                     currentScreen = "profile"
+                                },
+                                onTagClick = { tag ->
+                                    initialSearchQuery = "#$tag"
+                                    currentScreen = "search"
                                 }
                             )
                         }
                     }
                     "search" -> {
                         SearchScreen(
+                            initialQuery = initialSearchQuery,
                             onUserClick = { userId ->
                                 selectedUserId = userId
                                 currentScreen = "profile"
                             },
-                            onBackClick = { currentScreen = "feed" }
+                            onBackClick = { 
+                                initialSearchQuery = null
+                                currentScreen = "feed" 
+                            }
                         )
                     }
                     "create_post" -> {
@@ -95,6 +107,10 @@ class MainActivity : ComponentActivity() {
                     "profile" -> {
                         ProfileScreen(
                             userId = selectedUserId,
+                            onUserClick = { userId ->
+                                selectedUserId = userId
+                                currentScreen = "profile"
+                            },
                             onBackClick = { currentScreen = "feed" },
                             onLogout = {
                                 TokenManager.clear()

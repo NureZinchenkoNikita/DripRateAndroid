@@ -3,6 +3,7 @@ package com.example.driprate.data.api
 import com.example.driprate.data.model.ChangePasswordRequest
 import com.example.driprate.data.model.UpdateProfileRequest
 import com.example.driprate.data.model.UserDTO
+import com.example.driprate.data.model.TagDTO
 import okhttp3.MultipartBody
 import retrofit2.Response
 import retrofit2.http.*
@@ -20,10 +21,13 @@ interface UserApi {
     @POST("api/Users/@me/change-password")
     suspend fun changePassword(@Body request: ChangePasswordRequest): Response<Unit>
 
+
     @Multipart
     @PATCH("api/Users/@me/avatar")
     suspend fun updateAvatar(@Part avatar: MultipartBody.Part): Response<Unit>
 
+    @DELETE("api/Users/@me/avatar")
+    suspend fun deleteAvatar(): Response<Unit>
     @POST("api/Users/{id}/follow")
     suspend fun followUser(@Path("id") userId: String): Response<Unit>
 
@@ -35,4 +39,10 @@ interface UserApi {
 
     @GET("api/Users/{id}/following")
     suspend fun getFollowing(@Path("id") userId: String): Response<List<UserDTO>>
+
+    @GET("api/Users/@me/preferences")
+    suspend fun getMyPreferences(): Response<List<TagDTO>>
+
+    @PUT("api/Users/@me/preferences")
+    suspend fun updatePreferences(@Body tagIds: List<String>): Response<Unit>
 }

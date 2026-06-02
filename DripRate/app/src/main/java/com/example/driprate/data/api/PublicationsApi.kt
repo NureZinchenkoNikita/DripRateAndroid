@@ -61,7 +61,7 @@ interface PublicationsApi {
     suspend fun createPublication(
         @Part image: MultipartBody.Part,
         @Part("Description") description: RequestBody,
-        @Part("WardrobeItemIds") wardrobeItemIds: List<@JvmSuppressWildcards RequestBody>,
+        @Part("ClothIds") wardrobeItemIds: List<@JvmSuppressWildcards RequestBody>,
         @Part("Tags") tags: List<@JvmSuppressWildcards RequestBody>,
         @Part("IsUrgentRatingRequested") isUrgent: RequestBody
     ): Response<Unit>

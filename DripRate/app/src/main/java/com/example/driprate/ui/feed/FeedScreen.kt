@@ -28,6 +28,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.driprate.data.model.CommentDTO
 import com.example.driprate.data.model.PublicationDTO
+import com.example.driprate.data.model.WardrobeItemDTO
+import com.example.driprate.data.api.RetrofitClient
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.Link
 import java.util.Locale
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.foundation.background
@@ -40,6 +47,9 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Flag
+import com.example.driprate.ui.components.ReportDialog
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,7 +59,8 @@ fun FeedScreen(
     onCreatePostClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
+    onTagClick: (String) -> Unit = {}
 ) {
     val feedState by viewModel.feedState.collectAsState()
     val comments by viewModel.comments.collectAsState()
@@ -73,6 +84,7 @@ fun FeedScreen(
     val assessmentsList by viewModel.assessments.collectAsState()
     var selectedPublicationIdForAssessments by remember { mutableStateOf<String?>(null) } // ДОДАЛИ
     var showAssessmentsSheet by remember { mutableStateOf(false) } // ДОДАЛИ
+    var showReportDialogForTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     LaunchedEffect(selectedTabIndex) {
         if (selectedTabIndex == 0) {
@@ -120,44 +132,6 @@ fun FeedScreen(
                         scope.launch { drawerState.close() }
                     }
                 )
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("My Collections", style = MaterialTheme.typography.titleSmall)
-                    IconButton(onClick = { showCreateCollectionDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "Create Collection")
-                    }
-                }
-
-                myCollections.forEach { collection ->
-                    NavigationDrawerItem(
-                        label = {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(collection.name)
-                                val isDefault = collection.name.lowercase() == "liked" || collection.name.lowercase() == "saved"
-                                if (!isDefault) {
-                                    IconButton(onClick = { viewModel.deleteCollection(collection.id) }) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray)
-                                    }
-                                }
-                            }
-                        },
-                        selected = false,
-                        onClick = {
-                            viewModel.loadCollectionItems(collection.id)
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                }
             }
         }
     ) {
@@ -208,7 +182,10 @@ fun FeedScreen(
                                     myUserId = myUserId, // ДОДАЄМО передачу твого ID
                                     onLikeClick = { viewModel.toggleLike(publication.id) },
                                     onSaveClick = { viewModel.toggleSave(publication.id) },
-                                    onCollectionClick = { showCollectionPicker = publication.id },
+                                    onCollectionClick = { 
+                                        showCollectionPicker = publication.id 
+                                        viewModel.loadMyCollections()
+                                    },
                                     onRatingRowClick = {
                                         if (myUserId != null && publication.authorId == myUserId) {
                                             // Якщо це мій пост -> виїжджає список тих, хто оцінив
@@ -225,7 +202,9 @@ fun FeedScreen(
                                         viewModel.loadComments(publication.id)
                                         showBottomSheet = true
                                     },
-                                    onUserClick = onUserClick
+                                    onUserClick = onUserClick,
+                                    onTagClick = onTagClick,
+                                    onReportClick = { showReportDialogForTarget = Pair(publication.id, "Publication") }
                                 )
                             }
                         }
@@ -272,6 +251,9 @@ fun FeedScreen(
                         },
                         onToggleLike = { commentId -> // ДОДАНО
                             viewModel.toggleCommentLike(selectedPublicationIdForComments!!, commentId)
+                        },
+                        onReportCommentClick = { commentId ->
+                            showReportDialogForTarget = Pair(commentId, "Comment")
                         }
                     )
                 }
@@ -295,6 +277,14 @@ fun FeedScreen(
                         Column {
                             // Always show "Saved" as an option at the top if it exists, or just show all
                             LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                                item {
+                                    ListItem(
+                                        headlineContent = { Text("+ Create New Collection", color = MaterialTheme.colorScheme.primary) },
+                                        modifier = Modifier.clickable {
+                                            showCreateCollectionDialog = true
+                                        }
+                                    )
+                                }
                                 // Фільтруємо, щоб не показувати системні колекції "Saved" і "Liked"
                                 val customCollections = myCollections.filter {
                                     it.name.lowercase() != "likes" &&
@@ -351,6 +341,25 @@ fun FeedScreen(
                     }
                 )
             }
+
+            if (showReportDialogForTarget != null) {
+                val (targetId, targetType) = showReportDialogForTarget!!
+                val context = LocalContext.current
+                ReportDialog(
+                    onDismiss = { showReportDialogForTarget = null },
+                    onSubmit = { reason ->
+                        viewModel.sendReport(targetId, targetType, reason) { status ->
+                            showReportDialogForTarget = null
+                            val msg = when (status) {
+                                null -> "Report submitted successfully"
+                                "duplicate" -> "You have already reported this content"
+                                else -> "Failed to submit report"
+                            }
+                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
+            }
         }
     }
 
@@ -364,7 +373,9 @@ fun PublicationItem(
     onCollectionClick: () -> Unit,
     onRatingRowClick: () -> Unit,
     onCommentsClick: () -> Unit,
-    onUserClick: (String) -> Unit
+    onUserClick: (String) -> Unit,
+    onTagClick: ((String) -> Unit)? = null,
+    onReportClick: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -389,6 +400,16 @@ fun PublicationItem(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(text = publication.authorName ?: "Anonymous", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.weight(1f))
+                if (publication.authorId != myUserId) {
+                    IconButton(onClick = onReportClick) {
+                        Icon(
+                            imageVector = Icons.Default.Flag,
+                            contentDescription = "Report",
+                            tint = Color.Gray
+                        )
+                    }
+                }
             }
 
             AsyncImage(
@@ -411,6 +432,76 @@ fun PublicationItem(
                     modifier = Modifier.padding(8.dp),
                     style = MaterialTheme.typography.bodyMedium
                 )
+            }
+
+            val tags = publication.allTagNames
+            if (tags.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(tags) { tag ->
+                        SuggestionChip(
+                            onClick = { onTagClick?.invoke(tag) },
+                            label = { Text("#$tag") }
+                        )
+                    }
+                }
+            }
+
+            if (publication.clothes.isNotEmpty()) {
+                var selectedClothIdForDetail by remember { mutableStateOf<String?>(null) }
+
+                Text(
+                    text = "Tagged Garments:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                )
+
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(publication.clothes) { cloth ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable { selectedClothIdForDetail = cloth.id }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            AsyncImage(
+                                model = cloth.imageUrl,
+                                contentDescription = cloth.name,
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop,
+                                placeholder = rememberVectorPainter(Icons.Default.Image),
+                                error = rememberVectorPainter(Icons.Default.Image)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = cloth.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+
+                if (selectedClothIdForDetail != null) {
+                    TaggedClothDetailDialog(
+                        clothId = selectedClothIdForDetail!!,
+                        onDismiss = { selectedClothIdForDetail = null }
+                    )
+                }
             }
 
             Row(
@@ -493,7 +584,8 @@ fun CommentsSheetContent(
     onPostComment: (String, String?) -> Unit,
     onDeleteComment: (String) -> Unit,
     onLoadReplies: (String) -> Unit,
-    onToggleLike: (String) -> Unit
+    onToggleLike: (String) -> Unit,
+    onReportCommentClick: (String) -> Unit
 ) {
     var commentText by remember { mutableStateOf("") }
     var replyingTo by remember { mutableStateOf<CommentDTO?>(null) } // Стан для відповіді
@@ -509,7 +601,8 @@ fun CommentsSheetContent(
                     onReplyClick = { replyingTo = it },
                     onDeleteClick = onDeleteComment,
                     onLoadRepliesClick = onLoadReplies,
-                    onToggleLike = onToggleLike
+                    onToggleLike = onToggleLike,
+                    onReportClick = onReportCommentClick
                 )
             }
         }
@@ -570,12 +663,13 @@ fun CommentsSheetContent(
 @Composable
 fun CommentNode(
     comment: CommentDTO,
-    myUserId: String?, // ДОДАЛИ параметр
+    myUserId: String?,
     onReplyClick: (CommentDTO) -> Unit,
-    onDeleteClick: (String) -> Unit, // ДОДАЛИ параметр
+    onDeleteClick: (String) -> Unit,
     onLoadRepliesClick: (String) -> Unit = {},
     onToggleLike: (String) -> Unit,
-    depth: Int = 0
+    depth: Int = 0,
+    onReportClick: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(comment.replies.size == 1) }
 
@@ -630,6 +724,18 @@ fun CommentNode(
                             color = Color.Gray
                         )
                     }
+
+                    if (myUserId != null && comment.authorId != myUserId) {
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Icon(
+                            imageVector = Icons.Default.Flag,
+                            contentDescription = "Report comment",
+                            tint = Color.Gray,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clickable { onReportClick(comment.id) }
+                        )
+                    }
                 }
             }
 
@@ -675,8 +781,9 @@ fun CommentNode(
                         onReplyClick = onReplyClick,
                         onDeleteClick = onDeleteClick,
                         onLoadRepliesClick = onLoadRepliesClick,
-                        onToggleLike = onToggleLike, // ПРОКИДАЄМО ДАЛІ
-                        depth = depth + 1
+                        onToggleLike = onToggleLike,
+                        depth = depth + 1,
+                        onReportClick = onReportClick
                     )
                 }
             } else if (expanded && comment.replies.isEmpty()) {
@@ -793,4 +900,91 @@ fun RatingSliderRow(label: String, value: Float, onValueChange: (Float) -> Unit)
             steps = 8 // (10 - 1) - 1
         )
     }
+}
+
+@Composable
+fun TaggedClothDetailDialog(
+    clothId: String,
+    onDismiss: () -> Unit
+) {
+    var fullCloth by remember { mutableStateOf<WardrobeItemDTO?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(clothId) {
+        try {
+            val response = RetrofitClient.wardrobeApi.getWardrobeItem(clothId)
+            if (response.isSuccessful) {
+                fullCloth = response.body()
+            } else {
+                error = "Failed to load details: ${response.code()}"
+            }
+        } catch (e: Exception) {
+            error = e.message ?: "Unknown error"
+        } finally {
+            isLoading = false
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(fullCloth?.name ?: "Garment Details") },
+        text = {
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else if (error != null) {
+                Text(error!!, color = MaterialTheme.colorScheme.error)
+            } else if (fullCloth != null) {
+                val item = fullCloth!!
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
+                    AsyncImage(
+                        model = item.imageUrl,
+                        contentDescription = item.name,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop,
+                        placeholder = rememberVectorPainter(Icons.Default.Image),
+                        error = rememberVectorPainter(Icons.Default.Image)
+                    )
+
+                    if (!item.brand.isNullOrBlank()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.ShoppingBag, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.Gray)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Brand: ${item.brand}", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+
+                    if (item.price != null) {
+                        Text("Price: $${item.price}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+
+                    if (!item.storeLink.isNullOrBlank()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.Gray)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Shop Link",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        Text(item.storeLink, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }
