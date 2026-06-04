@@ -88,7 +88,7 @@ fun ProfileScreen(
                 title = { 
                     Text(
                         when (val s = state) {
-                            is ProfileState.Success -> s.user.displayName ?: s.user.userName
+                            is ProfileState.Success -> s.user.displayName ?: "Profile"
                             else -> "Profile"
                         }
                     )
@@ -130,8 +130,8 @@ fun ProfileScreen(
                             snackbarHostState.showSnackbar("Post deleted")
                         }
                     },
-                    onUpdateProfile = { username, displayName, bio ->
-                        viewModel.updateProfile(username, displayName, bio) { success ->
+                    onUpdateProfile = { displayName, bio ->
+                        viewModel.updateProfile(displayName, bio) { success ->
                             scope.launch {
                                 snackbarHostState.showSnackbar(
                                     if (success) "Profile updated successfully" else "Failed to update profile"
@@ -243,7 +243,7 @@ fun ProfileContent(
     wardrobe: List<WardrobeItemDTO>,
     isOwnProfile: Boolean,
     onDeletePost: (String) -> Unit,
-    onUpdateProfile: (String?, String?, String?) -> Unit,
+    onUpdateProfile: (String?, String?) -> Unit,
     onChangePassword: (String, String) -> Unit,
     onUpdateAvatar: (MultipartBody.Part) -> Unit,
     onCreateCollection: (String) -> Unit,
@@ -316,8 +316,7 @@ fun ProfileContent(
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        Text(text = user.displayName ?: user.userName, style = MaterialTheme.typography.headlineMedium)
-        Text(text = "@${user.userName}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.secondary)
+        Text(text = user.displayName ?: "", style = MaterialTheme.typography.headlineMedium)
         
         user.bio?.let {
             Spacer(modifier = Modifier.height(8.dp))
@@ -932,8 +931,8 @@ fun ProfileContent(
         EditProfileDialog(
             user = user,
             onDismiss = { showEditDialog = false },
-            onConfirm = { username, displayName, bio ->
-                onUpdateProfile(username, displayName, bio)
+            onConfirm = { displayName, bio ->
+                onUpdateProfile(displayName, bio)
                 showEditDialog = false
             }
         )
@@ -972,9 +971,8 @@ fun ProfileContent(
 fun EditProfileDialog(
     user: UserDTO,
     onDismiss: () -> Unit,
-    onConfirm: (String?, String?, String?) -> Unit
+    onConfirm: (String?, String?) -> Unit
 ) {
-    var username by remember { mutableStateOf(user.userName) }
     var displayName by remember { mutableStateOf(user.displayName ?: "") }
     var bio by remember { mutableStateOf(user.bio ?: "") }
     
@@ -986,19 +984,13 @@ fun EditProfileDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
-                    value = username, 
+                    value = displayName, 
                     onValueChange = { 
-                        username = it
+                        displayName = it
                         error = null
                     }, 
-                    label = { Text("Username") },
-                    isError = error != null,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = displayName, 
-                    onValueChange = { displayName = it }, 
                     label = { Text("Display Name") },
+                    isError = error != null,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
@@ -1020,10 +1012,10 @@ fun EditProfileDialog(
         confirmButton = {
             Button(
                 onClick = { 
-                    if (username.isBlank()) {
-                        error = "Username cannot be empty"
+                    if (displayName.isBlank()) {
+                        error = "Display Name cannot be empty"
                     } else {
-                        onConfirm(username, displayName, bio)
+                        onConfirm(displayName, bio)
                     }
                 }
             ) { Text("Save") }
@@ -1153,10 +1145,7 @@ fun UserListDialog(
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
-                                Text(user.userName, style = MaterialTheme.typography.bodyLarge)
-                                user.displayName?.let {
-                                    Text(it, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                                }
+                                Text(user.displayName ?: "", style = MaterialTheme.typography.bodyLarge)
                             }
                         }
                     }

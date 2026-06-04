@@ -18,7 +18,6 @@ data class UserDTO(
 
 @Serializable
 data class UpdateProfileRequest(
-    val userName: String? = null,
     val displayName: String? = null,
     val bio: String? = null
 )

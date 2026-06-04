@@ -417,8 +417,7 @@ fun UserSearchItem(
 ) {
     ListItem(
         modifier = Modifier.clickable { onUserClick(user.id) },
-        headlineContent = { Text(user.userName) },
-        supportingContent = { user.displayName?.let { Text(it) } },
+        headlineContent = { Text(user.displayName ?: "") },
         leadingContent = {
             AsyncImage(
                 model = user.avatarUrl,

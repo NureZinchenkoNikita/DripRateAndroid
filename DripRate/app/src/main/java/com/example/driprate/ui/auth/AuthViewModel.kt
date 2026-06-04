@@ -55,11 +55,11 @@ class AuthViewModel : ViewModel() {
         }
     }
 
-    fun register(username: String, email: String, password: String) {
+    fun register(displayName: String, email: String, password: String) {
         viewModelScope.launch {
             _authState.value = AuthState.Loading
             try {
-                val response = RetrofitClient.authApi.register(RegisterRequest(username, email, password))
+                val response = RetrofitClient.authApi.register(RegisterRequest(displayName, email, password))
                 if (response.isSuccessful) {
                     // Після успішної реєстрації автоматично викликаємо логін
                     val loginResponse = RetrofitClient.authApi.login(LoginRequest(email, password))

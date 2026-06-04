@@ -118,29 +118,39 @@ class ProfileViewModel : ViewModel() {
     fun deletePost(publicationId: String, userId: String?) {
         viewModelScope.launch {
             try {
+                // Optimistically remove post
+                val currentState = _profileState.value
+                if (currentState is ProfileState.Success) {
+                    _profileState.value = currentState.copy(
+                        posts = currentState.posts.filter { it.id != publicationId }
+                    )
+                }
                 val response = RetrofitClient.publicationsApi.deletePublication(publicationId)
                 if (response.isSuccessful) {
-                    loadProfile(currentUserId, silent = true) // Reload
-                } else if (response.code() == 401) {
-                    TokenManager.clear()
+                    refreshPostsOnly()
+                } else {
+                    if (response.code() == 401) {
+                        TokenManager.clear()
+                    } else {
+                        loadProfile(currentUserId, silent = true)
+                    }
                 }
             } catch (e: Exception) {
-                // Handle error
+                loadProfile(currentUserId, silent = true)
             }
         }
     }
 
-    fun updateProfile(username: String?, displayName: String?, bio: String?, onComplete: (Boolean) -> Unit) {
+    fun updateProfile(displayName: String?, bio: String?, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch {
             try {
                 val request = com.example.driprate.data.model.UpdateProfileRequest(
-                    userName = username,
                     displayName = displayName,
                     bio = bio
                 )
                 val response = RetrofitClient.userApi.updateProfile(request)
                 if (response.isSuccessful) {
-                    loadProfile(currentUserId, silent = true)
+                    refreshUserOnly()
                     onComplete(true)
                 } else {
                     if (response.code() == 401) {
@@ -174,7 +184,7 @@ class ProfileViewModel : ViewModel() {
             try {
                 val response = RetrofitClient.userApi.updateAvatar(avatarPart)
                 if (response.isSuccessful) {
-                    loadProfile(currentUserId, silent = true)
+                    refreshUserOnly()
                     onComplete(true)
                 } else {
                     if (response.code() == 401) {
@@ -197,8 +207,20 @@ class ProfileViewModel : ViewModel() {
                 )
                 android.util.Log.d("ProfileViewModel", "createCollection response code: ${response.code()}")
                 if (response.isSuccessful) {
-                    android.util.Log.d("ProfileViewModel", "createCollection success, calling loadProfile")
-                    loadProfile(currentUserId, silent = true)
+                    val newId = response.body() ?: ""
+                    val currentState = _profileState.value
+                    if (currentState is ProfileState.Success && newId.isNotEmpty()) {
+                        val newCollection = com.example.driprate.data.api.CollectionDTO(
+                            id = newId,
+                            name = name,
+                            isPublic = false,
+                            itemsCount = 0
+                        )
+                        _profileState.value = currentState.copy(
+                            collections = currentState.collections + newCollection
+                        )
+                    }
+                    refreshCollectionsOnly()
                 } else if (response.code() == 401) {
                     TokenManager.clear()
                 }
@@ -211,13 +233,26 @@ class ProfileViewModel : ViewModel() {
     fun deleteCollection(collectionId: String) {
         viewModelScope.launch {
             try {
+                // Optimistically remove collection
+                val currentState = _profileState.value
+                if (currentState is ProfileState.Success) {
+                    _profileState.value = currentState.copy(
+                        collections = currentState.collections.filter { it.id != collectionId }
+                    )
+                }
                 val response = RetrofitClient.collectionsApi.deleteCollection(collectionId)
                 if (response.isSuccessful) {
-                    loadProfile(currentUserId, silent = true)
-                } else if (response.code() == 401) {
-                    TokenManager.clear()
+                    refreshCollectionsOnly()
+                } else {
+                    if (response.code() == 401) {
+                        TokenManager.clear()
+                    } else {
+                        loadProfile(currentUserId, silent = true)
+                    }
                 }
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                loadProfile(currentUserId, silent = true)
+            }
         }
     }
 
@@ -226,7 +261,7 @@ class ProfileViewModel : ViewModel() {
             try {
                 val response = RetrofitClient.userApi.followUser(userId)
                 if (response.isSuccessful) {
-                    loadProfile(currentUserId, silent = true)
+                    refreshUserOnly()
                 } else if (response.code() == 401) {
                     TokenManager.clear()
                 }
@@ -239,7 +274,7 @@ class ProfileViewModel : ViewModel() {
             try {
                 val response = RetrofitClient.userApi.unfollowUser(userId)
                 if (response.isSuccessful) {
-                    loadProfile(currentUserId, silent = true)
+                    refreshUserOnly()
                 } else if (response.code() == 401) {
                     TokenManager.clear()
                 }
@@ -275,7 +310,7 @@ class ProfileViewModel : ViewModel() {
                     photo = photoPart
                 )
                 if (response.isSuccessful) {
-                    loadProfile(currentUserId, silent = true)
+                    refreshWardrobeOnly()
                     onComplete(null)
                 } else {
                     if (response.code() == 401) {
@@ -317,7 +352,7 @@ class ProfileViewModel : ViewModel() {
                     photo = photoPart
                 )
                 if (response.isSuccessful) {
-                    loadProfile(currentUserId, silent = true)
+                    refreshWardrobeOnly()
                     onComplete(null)
                 } else {
                     if (response.code() == 401) {
@@ -353,16 +388,117 @@ class ProfileViewModel : ViewModel() {
     fun deleteWardrobeItem(id: String, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch {
             try {
+                // Optimistically remove
+                val currentState = _profileState.value
+                if (currentState is ProfileState.Success) {
+                    _profileState.value = currentState.copy(
+                        wardrobe = currentState.wardrobe.filter { it.id != id }
+                    )
+                }
                 val response = RetrofitClient.wardrobeApi.deleteWardrobeItem(id)
                 if (response.isSuccessful) {
-                    loadProfile(currentUserId, silent = true)
+                    refreshWardrobeOnly()
                     onComplete(true)
                 } else {
                     if (response.code() == 401) TokenManager.clear()
+                    loadProfile(currentUserId, silent = true)
                     onComplete(false)
                 }
             } catch (e: Exception) {
+                loadProfile(currentUserId, silent = true)
                 onComplete(false)
+            }
+        }
+    }
+
+    private fun refreshCollectionsOnly() {
+        val currentState = _profileState.value
+        if (currentState !is ProfileState.Success) return
+        viewModelScope.launch {
+            try {
+                val collectionsResponse = if (currentState.isOwnProfile) {
+                    RetrofitClient.collectionsApi.getMyCollections()
+                } else {
+                    RetrofitClient.collectionsApi.getUserCollections(currentState.user.id)
+                }
+                if (collectionsResponse.isSuccessful) {
+                    val newCollections = collectionsResponse.body() ?: emptyList()
+                    val latestState = _profileState.value
+                    if (latestState is ProfileState.Success) {
+                        _profileState.value = latestState.copy(collections = newCollections)
+                    }
+                } else if (collectionsResponse.code() == 401) {
+                    TokenManager.clear()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error refreshing collections", e)
+            }
+        }
+    }
+
+    private fun refreshPostsOnly() {
+        val currentState = _profileState.value
+        if (currentState !is ProfileState.Success) return
+        viewModelScope.launch {
+            try {
+                val postsResponse = RetrofitClient.feedApi.getUserFeed(currentState.user.id, 0, 50)
+                if (postsResponse.isSuccessful) {
+                    val newPosts = postsResponse.body() ?: emptyList()
+                    val latestState = _profileState.value
+                    if (latestState is ProfileState.Success) {
+                        _profileState.value = latestState.copy(posts = newPosts)
+                    }
+                } else if (postsResponse.code() == 401) {
+                    TokenManager.clear()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error refreshing posts", e)
+            }
+        }
+    }
+
+    private fun refreshWardrobeOnly() {
+        val currentState = _profileState.value
+        if (currentState !is ProfileState.Success) return
+        viewModelScope.launch {
+            try {
+                val wardrobeResponse = RetrofitClient.wardrobeApi.getWardrobe(currentState.user.id)
+                if (wardrobeResponse.isSuccessful) {
+                    val newWardrobe = wardrobeResponse.body() ?: emptyList()
+                    val latestState = _profileState.value
+                    if (latestState is ProfileState.Success) {
+                        _profileState.value = latestState.copy(wardrobe = newWardrobe)
+                    }
+                } else if (wardrobeResponse.code() == 401) {
+                    TokenManager.clear()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error refreshing wardrobe", e)
+            }
+        }
+    }
+
+    private fun refreshUserOnly() {
+        val currentState = _profileState.value
+        if (currentState !is ProfileState.Success) return
+        viewModelScope.launch {
+            try {
+                val userResponse = if (currentUserId == null) {
+                    RetrofitClient.userApi.getMyProfile()
+                } else {
+                    RetrofitClient.userApi.getUserProfile(currentUserId!!)
+                }
+                if (userResponse.isSuccessful) {
+                    val newUser = userResponse.body()!!
+                    val latestState = _profileState.value
+                    if (latestState is ProfileState.Success) {
+                        _profileState.value = latestState.copy(user = newUser)
+                    }
+                } else if (userResponse.code() == 401) {
+                    TokenManager.clear()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error refreshing user profile", e)
             }
         }
     }
