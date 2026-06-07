@@ -13,6 +13,8 @@ import com.example.driprate.data.model.CreateCommentRequest
 import com.example.driprate.data.model.GlobalFeedResponse
 import com.example.driprate.data.model.PublicationDTO
 import com.example.driprate.data.model.CreateReportRequest
+import com.example.driprate.data.model.FeedItem
+import com.example.driprate.data.model.AdvertisementDTO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,7 +22,7 @@ import kotlinx.coroutines.launch
 
 sealed class FeedState {
     object Loading : FeedState()
-    data class Success(val items: List<PublicationDTO>) : FeedState()
+    data class Success(val items: List<FeedItem>) : FeedState()
     data class Error(val message: String) : FeedState()
 }
 
@@ -28,7 +30,6 @@ class FeedViewModel : ViewModel() {
     private val _feedState = MutableStateFlow<FeedState>(FeedState.Loading)
     val feedState: StateFlow<FeedState> = _feedState
 
-    // Стан для коментарів конкретного поста
     private val _comments = MutableStateFlow<List<CommentDTO>>(emptyList())
     val comments: StateFlow<List<CommentDTO>> = _comments
 
@@ -39,9 +40,25 @@ class FeedViewModel : ViewModel() {
     val userAvatars: StateFlow<Map<String, String>> = _userAvatars.asStateFlow()
 
     private var currentTab = 0
+    private var selectedCollectionId: String? = null
+
+    private val registeredAdIds = mutableSetOf<String>()
 
     init {
         loadMyCollections()
+        loadMyProfile()
+    }
+
+    fun registerAdView(adId: String) {
+        if (registeredAdIds.contains(adId)) return
+        registeredAdIds.add(adId)
+        viewModelScope.launch {
+            try {
+                RetrofitClient.advertisementsApi.registerView(adId)
+            } catch (e: Exception) {
+                android.util.Log.e("FeedViewModel", "Error registering ad view", e)
+            }
+        }
     }
 
     fun loadMyCollections() {
@@ -69,18 +86,16 @@ class FeedViewModel : ViewModel() {
             }
         }
     }
+
     fun fetchAvatarsForPosts(posts: List<PublicationDTO>) {
         viewModelScope.launch {
             val currentMap = _userAvatars.value.toMutableMap()
-
-            // Беремо ID авторів, для яких ми ще НЕ завантажували аватарку в цьому сеансі
             val uniqueUserIds = posts.mapNotNull { it.authorId }
                 .distinct()
                 .filter { !currentMap.containsKey(it) }
 
             uniqueUserIds.forEach { userId ->
                 try {
-                    // Викликаємо твій чинний API запит профілю
                     val response = RetrofitClient.userApi.getUserProfile(userId)
                     if (response.isSuccessful) {
                         response.body()?.avatarUrl?.let { url ->
@@ -91,15 +106,15 @@ class FeedViewModel : ViewModel() {
                     android.util.Log.e("FeedViewModel", "Error fetching avatar for user $userId", e)
                 }
             }
-            // Оновлюємо стейт, UI відразу це побачить
             _userAvatars.value = currentMap
         }
     }
+
     private val _assessments = MutableStateFlow<List<AssessmentDTO>>(emptyList())
     val assessments: StateFlow<List<AssessmentDTO>> = _assessments.asStateFlow()
 
-
-
+    private val _isAssessmentsLoading = MutableStateFlow(false)
+    val isAssessmentsLoading: StateFlow<Boolean> = _isAssessmentsLoading.asStateFlow()
 
     fun deleteCollection(collectionId: String) {
         viewModelScope.launch {
@@ -108,7 +123,7 @@ class FeedViewModel : ViewModel() {
                 if (response.isSuccessful) {
                     loadMyCollections()
                     if (currentTab == 4 && selectedCollectionId == collectionId) {
-                        loadGlobalFeed()
+                        refreshCurrentFeed()
                     }
                 }
             } catch (e: Exception) {
@@ -122,7 +137,7 @@ class FeedViewModel : ViewModel() {
             try {
                 val response = RetrofitClient.collectionsApi.addItemToCollection(collectionId, publicationId)
                 if (response.isSuccessful) {
-                    updatePublicationSaveStateLocally(publicationId, true) // Оновлюємо без перезавантаження
+                    updatePublicationSaveStateLocally(publicationId, true)
                 }
             } catch (e: Exception) {
                 android.util.Log.e("FeedViewModel", "Error adding to collection", e)
@@ -135,35 +150,39 @@ class FeedViewModel : ViewModel() {
             try {
                 val response = RetrofitClient.collectionsApi.removeItemFromCollection(collectionId, publicationId)
                 if (response.isSuccessful) {
-                    updatePublicationSaveStateLocally(publicationId, false) // Оновлюємо без перезавантаження
+                    updatePublicationSaveStateLocally(publicationId, false)
                 }
             } catch (e: Exception) {
                 android.util.Log.e("FeedViewModel", "Error removing from collection", e)
             }
         }
     }
+
     private fun updatePublicationSaveStateLocally(publicationId: String, isSaved: Boolean) {
         val currentState = _feedState.value
         if (currentState is FeedState.Success) {
-            val updatedItems = currentState.items.map { pub ->
-                if (pub.id == publicationId) pub.copy(isSaved = isSaved) else pub
+            val updatedItems = currentState.items.map { item ->
+                if (item is FeedItem.Publication && item.data.id == publicationId) {
+                    FeedItem.Publication(item.data.copy(isSaved = isSaved))
+                } else item
             }
             _feedState.value = FeedState.Success(updatedItems)
         }
     }
+
     fun toggleSave(publicationId: String) {
         viewModelScope.launch {
             try {
-                // 1. ОПТИМІСТИЧНЕ ОНОВЛЕННЯ: Миттєво міняємо стан закладинки
                 val currentState = _feedState.value
                 if (currentState is FeedState.Success) {
-                    val updatedItems = currentState.items.map { pub ->
-                        if (pub.id == publicationId) pub.copy(isSaved = !pub.isSaved) else pub
+                    val updatedItems = currentState.items.map { item ->
+                        if (item is FeedItem.Publication && item.data.id == publicationId) {
+                            FeedItem.Publication(item.data.copy(isSaved = !item.data.isSaved))
+                        } else item
                     }
                     _feedState.value = FeedState.Success(updatedItems)
                 }
 
-                // 2. ФОНОВИЙ ЗАПИТ: Відправляємо швидке збереження на бекенд
                 val response = RetrofitClient.publicationsApi.toggleSave(publicationId)
                 if (!response.isSuccessful) {
                     android.util.Log.e("FeedViewModel", "Error toggling save: ${response.code()}")
@@ -177,26 +196,21 @@ class FeedViewModel : ViewModel() {
     fun toggleLike(publicationId: String) {
         viewModelScope.launch {
             try {
-                // 1. ОПТИМІСТИЧНЕ ОНОВЛЕННЯ: Миттєво міняємо стан у локальному списку, щоб не було мигання
                 val currentState = _feedState.value
                 if (currentState is FeedState.Success) {
-                    val updatedItems = currentState.items.map { pub ->
-                        if (pub.id == publicationId) {
-                            val newIsLiked = !pub.isLiked
-                            val newLikesCount = if (newIsLiked) pub.likesCount + 1 else pub.likesCount - 1
-                            pub.copy(isLiked = newIsLiked, likesCount = newLikesCount)
-                        } else {
-                            pub
-                        }
+                    val updatedItems = currentState.items.map { item ->
+                        if (item is FeedItem.Publication && item.data.id == publicationId) {
+                            val newIsLiked = !item.data.isLiked
+                            val newLikesCount = if (newIsLiked) item.data.likesCount + 1 else item.data.likesCount - 1
+                            FeedItem.Publication(item.data.copy(isLiked = newIsLiked, likesCount = newLikesCount))
+                        } else item
                     }
                     _feedState.value = FeedState.Success(updatedItems)
                 }
 
-                // 2. ФОНОВИЙ ЗАПИТ: Відправляємо лайк на бекенд
                 val response = RetrofitClient.publicationsApi.toggleLike(publicationId)
                 if (!response.isSuccessful) {
                     android.util.Log.e("FeedViewModel", "Error toggling like: ${response.code()}")
-                    // За бажанням тут можна відкотити лайк назад, якщо сталася помилка сервера
                 }
             } catch (e: Exception) {
                 android.util.Log.e("FeedViewModel", "Error toggling like", e)
@@ -204,30 +218,22 @@ class FeedViewModel : ViewModel() {
         }
     }
 
-    fun setAssessment(publicationId: String,
-                      color: Int,
-                      fit: Int,
-                      orig: Int,
-                      style: Int) {
+    fun setAssessment(publicationId: String, color: Int, fit: Int, orig: Int, style: Int) {
         viewModelScope.launch {
             try {
-                // 1. ОПТИМІСТИЧНЕ ОНОВЛЕННЯ (Миттєва зміна на екрані без блимання)
                 val currentState = _feedState.value
                 if (currentState is FeedState.Success) {
-                    val updatedItems = currentState.items.map { pub ->
-                        if (pub.id == publicationId) {
-                            // Вираховуємо середнє значення для краси
+                    val updatedItems = currentState.items.map { item ->
+                        if (item is FeedItem.Publication && item.data.id == publicationId) {
                             val newAvg = (color + fit + orig + style) / 4.0
-                            pub.copy(averageAssessment = newAvg)
-                        } else pub
+                            FeedItem.Publication(item.data.copy(averageAssessment = newAvg))
+                        } else item
                     }
                     _feedState.value = FeedState.Success(updatedItems)
                 }
 
-                // 2. ФОНОВИЙ ЗАПИТ НА СЕРВЕР (без виклику refreshCurrentFeed!)
                 val request = AssessmentRequest(color, fit, orig, style)
                 val response = RetrofitClient.publicationsApi.setAssessment(publicationId, request)
-
                 if (!response.isSuccessful) {
                     android.util.Log.e("FeedViewModel", "Error setting assessment: ${response.code()}")
                 }
@@ -240,7 +246,6 @@ class FeedViewModel : ViewModel() {
     fun loadComments(publicationId: String) {
         viewModelScope.launch {
             try {
-                // Викликаємо API без parentCommentId
                 val response = RetrofitClient.publicationsApi.getComments(publicationId, null)
                 if (response.isSuccessful) {
                     _comments.value = response.body() ?: emptyList()
@@ -250,15 +255,13 @@ class FeedViewModel : ViewModel() {
             }
         }
     }
+
     fun loadReplies(publicationId: String, parentCommentId: String) {
         viewModelScope.launch {
             try {
-                // Просимо бекенд дати відповіді саме для цього parentCommentId
                 val response = RetrofitClient.publicationsApi.getComments(publicationId, parentCommentId)
                 if (response.isSuccessful) {
                     val newReplies = response.body() ?: emptyList()
-
-                    // Оновлюємо наше дерево коментарів
                     val currentTree = _comments.value
                     _comments.value = insertRepliesIntoTree(currentTree, parentCommentId, newReplies)
                 }
@@ -267,17 +270,12 @@ class FeedViewModel : ViewModel() {
             }
         }
     }
-    private fun insertRepliesIntoTree(
-        comments: List<CommentDTO>,
-        targetParentId: String,
-        newReplies: List<CommentDTO>
-    ): List<CommentDTO> {
+
+    private fun insertRepliesIntoTree(comments: List<CommentDTO>, targetParentId: String, newReplies: List<CommentDTO>): List<CommentDTO> {
         return comments.map { comment ->
             if (comment.id == targetParentId) {
-                // Знайшли батька! Додаємо йому відповіді
                 comment.copy(replies = newReplies)
             } else if (comment.replies.isNotEmpty()) {
-                // Шукаємо глибше
                 comment.copy(replies = insertRepliesIntoTree(comment.replies, targetParentId, newReplies))
             } else {
                 comment
@@ -288,11 +286,7 @@ class FeedViewModel : ViewModel() {
     fun postComment(publicationId: String, content: String, parentCommentId: String? = null) {
         viewModelScope.launch {
             try {
-                // Передаємо parentCommentId у запит
-                val response = RetrofitClient.publicationsApi.postComment(
-                    publicationId,
-                    CreateCommentRequest(content, parentCommentId)
-                )
+                val response = RetrofitClient.publicationsApi.postComment(publicationId, CreateCommentRequest(content, parentCommentId))
                 if (response.isSuccessful) {
                     loadComments(publicationId)
                     refreshCurrentFeed()
@@ -303,9 +297,6 @@ class FeedViewModel : ViewModel() {
         }
     }
 
-
-    private var selectedCollectionId: String? = null
-
     fun loadCollectionItems(collectionId: String) {
         currentTab = 4
         selectedCollectionId = collectionId
@@ -314,7 +305,8 @@ class FeedViewModel : ViewModel() {
             try {
                 val response = RetrofitClient.collectionsApi.getCollectionItems(collectionId)
                 if (response.isSuccessful) {
-                    _feedState.value = FeedState.Success(response.body() ?: emptyList())
+                    val items = response.body() ?: emptyList()
+                    _feedState.value = FeedState.Success(items.map { FeedItem.Publication(it) })
                 } else {
                     _feedState.value = FeedState.Error("Failed to load collection items")
                 }
@@ -331,8 +323,8 @@ class FeedViewModel : ViewModel() {
             try {
                 val response = RetrofitClient.feedApi.getGlobalFeed(0, 20)
                 if (response.isSuccessful) {
-                    // ТІЛЬКИ ДЛЯ ГЛОБАЛЬНОЇ дістаємо з .publications
-                    _feedState.value = FeedState.Success(response.body()?.publications ?: emptyList())
+                    val feedResponse = response.body()
+                    _feedState.value = FeedState.Success(feedResponse?.toFeedItems() ?: emptyList())
                 } else {
                     if (response.code() == 401) TokenManager.clear()
                     _feedState.value = FeedState.Error("Failed to load global feed: ${response.code()}")
@@ -378,11 +370,11 @@ class FeedViewModel : ViewModel() {
                 if (response.isSuccessful) {
                     val collections = response.body() ?: emptyList()
                     val savedCollection = collections.find { it.name.lowercase() == "saved" || it.name.lowercase() == "збережене" }
-                    
                     if (savedCollection != null) {
                         val itemsResponse = RetrofitClient.collectionsApi.getCollectionItems(savedCollection.id)
                         if (itemsResponse.isSuccessful) {
-                            _feedState.value = FeedState.Success(itemsResponse.body() ?: emptyList())
+                            val items = itemsResponse.body() ?: emptyList()
+                            _feedState.value = FeedState.Success(items.map { FeedItem.Publication(it) })
                         } else {
                             _feedState.value = FeedState.Error("Failed to load saved items")
                         }
@@ -405,11 +397,9 @@ class FeedViewModel : ViewModel() {
                 val response = apiCall()
                 if (response.isSuccessful) {
                     val publications = response.body() ?: emptyList()
-                    _feedState.value = FeedState.Success(publications)
+                    _feedState.value = FeedState.Success(publications.map { FeedItem.Publication(it) })
                 } else {
-                    if (response.code() == 401) {
-                        TokenManager.clear()
-                    }
+                    if (response.code() == 401) TokenManager.clear()
                     _feedState.value = FeedState.Error("Failed to load feed: ${response.code()}")
                 }
             } catch (e: Exception) {
@@ -417,16 +407,10 @@ class FeedViewModel : ViewModel() {
             }
         }
     }
-    // Додаємо стан для ID поточного користувача
+
     private val _myUserId = MutableStateFlow<String?>(null)
     val myUserId: StateFlow<String?> = _myUserId.asStateFlow()
 
-    init {
-        loadMyCollections()
-        loadMyProfile()
-    }
-
-    // Завантажуємо свій профіль, щоб знати свій ID
     private fun loadMyProfile() {
         viewModelScope.launch {
             try {
@@ -439,9 +423,11 @@ class FeedViewModel : ViewModel() {
             }
         }
     }
+
     fun loadAssessmentsList(publicationId: String) {
         viewModelScope.launch {
-            _assessments.value = emptyList() // Очищаємо перед новим завантаженням
+            _isAssessmentsLoading.value = true
+            _assessments.value = emptyList()
             try {
                 val response = RetrofitClient.publicationsApi.getAssessmentsList(publicationId)
                 if (response.isSuccessful) {
@@ -449,31 +435,31 @@ class FeedViewModel : ViewModel() {
                 }
             } catch (e: Exception) {
                 android.util.Log.e("FeedViewModel", "Error loading assessments", e)
+            } finally {
+                _isAssessmentsLoading.value = false
             }
         }
     }
 
-    // Функція видалення коментаря
     fun deleteComment(publicationId: String, commentId: String) {
         viewModelScope.launch {
             try {
                 val response = RetrofitClient.publicationsApi.deleteComment(publicationId, commentId)
                 if (response.isSuccessful) {
-                    loadComments(publicationId) // Перезавантажуємо дерево коментарів
-                    refreshCurrentFeed() // Оновлюємо лічильник коментарів у стрічці
+                    loadComments(publicationId)
+                    refreshCurrentFeed()
                 }
             } catch (e: Exception) {
                 android.util.Log.e("FeedViewModel", "Error deleting comment", e)
             }
         }
     }
+
     fun toggleCommentLike(publicationId: String, commentId: String) {
         viewModelScope.launch {
             try {
-                // Відправляємо запит на бекенд
                 val response = RetrofitClient.publicationsApi.toggleCommentLike(publicationId, commentId)
                 if (response.isSuccessful) {
-                    // Якщо успішно, оновлюємо локальне дерево коментарів, щоб UI миттєво змінився
                     val currentTree = _comments.value
                     _comments.value = updateLikeInTree(currentTree, commentId)
                 }
@@ -483,16 +469,13 @@ class FeedViewModel : ViewModel() {
         }
     }
 
-    // Рекурсивна функція для зміни лайка у дереві
     private fun updateLikeInTree(comments: List<CommentDTO>, targetCommentId: String): List<CommentDTO> {
         return comments.map { comment ->
             if (comment.id == targetCommentId) {
-                // Знайшли потрібний коментар -> змінюємо лайк
                 val newIsLiked = !comment.isLiked
                 val newLikesCount = if (newIsLiked) comment.likesCount + 1 else comment.likesCount - 1
                 comment.copy(isLiked = newIsLiked, likesCount = newLikesCount)
             } else if (comment.replies.isNotEmpty()) {
-                // Шукаємо глибше у відповідях
                 comment.copy(replies = updateLikeInTree(comment.replies, targetCommentId))
             } else {
                 comment
@@ -507,11 +490,7 @@ class FeedViewModel : ViewModel() {
                 if (response.isSuccessful) {
                     onComplete(null)
                 } else {
-                    if (response.code() == 409) {
-                        onComplete("duplicate")
-                    } else {
-                        onComplete("error")
-                    }
+                    if (response.code() == 409) onComplete("duplicate") else onComplete("error")
                 }
             } catch (e: Exception) {
                 android.util.Log.e("FeedViewModel", "Error sending report", e)

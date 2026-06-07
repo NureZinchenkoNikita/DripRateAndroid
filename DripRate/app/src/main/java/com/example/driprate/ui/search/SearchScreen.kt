@@ -1,3 +1,4 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
 package com.example.driprate.ui.search
 
 import androidx.compose.foundation.background
@@ -61,6 +62,7 @@ fun SearchScreen(
     var showAssessmentsSheet by remember { mutableStateOf(false) }
     var selectedPublicationIdForAssessments by remember { mutableStateOf<String?>(null) }
     val assessmentsList by viewModel.assessments.collectAsState()
+    val isAssessmentsLoading by viewModel.isAssessmentsLoading.collectAsState()
     
     var showRateDialog by remember { mutableStateOf<String?>(null) }
     
@@ -270,6 +272,7 @@ fun SearchScreen(
                 ) {
                     AssessmentsSheetContent(
                         assessments = assessmentsList,
+                        isLoading = isAssessmentsLoading,
                         onUserClick = { userId ->
                             showAssessmentsSheet = false
                             selectedPublicationForDetail = null

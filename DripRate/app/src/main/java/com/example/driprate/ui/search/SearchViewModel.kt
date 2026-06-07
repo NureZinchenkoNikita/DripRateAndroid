@@ -42,6 +42,9 @@ class SearchViewModel : ViewModel() {
     private val _assessments = MutableStateFlow<List<AssessmentDTO>>(emptyList())
     val assessments: StateFlow<List<AssessmentDTO>> = _assessments.asStateFlow()
 
+    private val _isAssessmentsLoading = MutableStateFlow(false)
+    val isAssessmentsLoading: StateFlow<Boolean> = _isAssessmentsLoading.asStateFlow()
+
     private val _myUserId = MutableStateFlow<String?>(null)
     val myUserId: StateFlow<String?> = _myUserId.asStateFlow()
 
@@ -374,6 +377,7 @@ class SearchViewModel : ViewModel() {
 
     fun loadAssessmentsList(publicationId: String) {
         viewModelScope.launch {
+            _isAssessmentsLoading.value = true
             _assessments.value = emptyList()
             try {
                 val response = RetrofitClient.publicationsApi.getAssessmentsList(publicationId)
@@ -382,6 +386,8 @@ class SearchViewModel : ViewModel() {
                 }
             } catch (e: Exception) {
                 android.util.Log.e("SearchViewModel", "Error loading assessments", e)
+            } finally {
+                _isAssessmentsLoading.value = false
             }
         }
     }

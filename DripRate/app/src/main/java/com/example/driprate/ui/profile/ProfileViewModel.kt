@@ -16,6 +16,13 @@ import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 
+import com.example.driprate.data.model.AssessmentRequest
+import com.example.driprate.data.model.CommentDTO
+import com.example.driprate.data.model.CreateCommentRequest
+import com.example.driprate.data.api.CollectionDTO
+import com.example.driprate.data.api.CreateCollectionRequest
+import com.example.driprate.data.model.AssessmentDTO
+
 sealed class ProfileState {
     object Loading : ProfileState()
     data class Success(
@@ -32,7 +39,43 @@ class ProfileViewModel : ViewModel() {
     private val _profileState = MutableStateFlow<ProfileState>(ProfileState.Loading)
     val profileState: StateFlow<ProfileState> = _profileState
 
+    private val _comments = MutableStateFlow<List<CommentDTO>>(emptyList())
+    val comments: StateFlow<List<CommentDTO>> = _comments.asStateFlow()
+
+    private val _assessments = MutableStateFlow<List<AssessmentDTO>>(emptyList())
+    val assessments: StateFlow<List<AssessmentDTO>> = _assessments.asStateFlow()
+
+    private val _isAssessmentsLoading = MutableStateFlow(false)
+    val isAssessmentsLoading: StateFlow<Boolean> = _isAssessmentsLoading.asStateFlow()
+
+    private val _userAvatars = MutableStateFlow<Map<String, String>>(emptyMap())
+    val userAvatars: StateFlow<Map<String, String>> = _userAvatars.asStateFlow()
+
+    private val _myUserId = MutableStateFlow<String?>(null)
+    val myUserId: StateFlow<String?> = _myUserId.asStateFlow()
+
+    private val _myCollections = MutableStateFlow<List<com.example.driprate.data.api.CollectionDTO>>(emptyList())
+    val myCollections: StateFlow<List<com.example.driprate.data.api.CollectionDTO>> = _myCollections.asStateFlow()
+
     private var currentUserId: String? = null
+
+    init {
+        loadMyProfile()
+        loadMyCollections()
+    }
+
+    private fun loadMyProfile() {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.userApi.getMyProfile()
+                if (response.isSuccessful) {
+                    _myUserId.value = response.body()?.id
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error loading my profile", e)
+            }
+        }
+    }
 
     fun loadProfile(userId: String? = null, silent: Boolean = false) {
         android.util.Log.d("ProfileViewModel", "loadProfile: userId=$userId, currentUserId=$currentUserId, silent=$silent")
@@ -589,6 +632,260 @@ class ProfileViewModel : ViewModel() {
                 android.util.Log.e("ProfileViewModel", "Error sending report", e)
                 onComplete("error")
             }
+        }
+    }
+
+    // --- Interactive publication features mirrored from FeedViewModel ---
+
+    fun loadMyCollections() {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.collectionsApi.getMyCollections()
+                if (response.isSuccessful) {
+                    _myCollections.value = response.body() ?: emptyList()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error loading collections", e)
+            }
+        }
+    }
+
+    fun addToCollection(collectionId: String, publicationId: String) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.collectionsApi.addItemToCollection(collectionId, publicationId)
+                if (response.isSuccessful) {
+                    updatePublicationSaveStateLocally(publicationId, true)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error adding to collection", e)
+            }
+        }
+    }
+
+    private fun updatePublicationSaveStateLocally(publicationId: String, isSaved: Boolean) {
+        val currentState = _profileState.value
+        if (currentState is ProfileState.Success) {
+            val updated = currentState.posts.map { pub ->
+                if (pub.id == publicationId) pub.copy(isSaved = isSaved) else pub
+            }
+            _profileState.value = currentState.copy(posts = updated)
+        }
+    }
+
+    fun toggleSave(publicationId: String) {
+        viewModelScope.launch {
+            try {
+                val currentState = _profileState.value
+                if (currentState is ProfileState.Success) {
+                    val updated = currentState.posts.map { pub ->
+                        if (pub.id == publicationId) pub.copy(isSaved = !pub.isSaved) else pub
+                    }
+                    _profileState.value = currentState.copy(posts = updated)
+                }
+
+                val response = RetrofitClient.publicationsApi.toggleSave(publicationId)
+                if (!response.isSuccessful) {
+                    android.util.Log.e("ProfileViewModel", "Error toggling save: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error toggling save", e)
+            }
+        }
+    }
+
+    fun toggleLike(publicationId: String) {
+        viewModelScope.launch {
+            try {
+                val currentState = _profileState.value
+                if (currentState is ProfileState.Success) {
+                    val updated = currentState.posts.map { pub ->
+                        if (pub.id == publicationId) {
+                            val newIsLiked = !pub.isLiked
+                            val newLikesCount = if (newIsLiked) pub.likesCount + 1 else pub.likesCount - 1
+                            pub.copy(isLiked = newIsLiked, likesCount = newLikesCount)
+                        } else {
+                            pub
+                        }
+                    }
+                    _profileState.value = currentState.copy(posts = updated)
+                }
+
+                val response = RetrofitClient.publicationsApi.toggleLike(publicationId)
+                if (!response.isSuccessful) {
+                    android.util.Log.e("ProfileViewModel", "Error toggling like: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error toggling like", e)
+            }
+        }
+    }
+
+    fun setAssessment(publicationId: String, color: Int, fit: Int, orig: Int, style: Int) {
+        viewModelScope.launch {
+            try {
+                val currentState = _profileState.value
+                if (currentState is ProfileState.Success) {
+                    val updated = currentState.posts.map { pub ->
+                        if (pub.id == publicationId) {
+                            val newAvg = (color + fit + orig + style) / 4.0
+                            pub.copy(averageAssessment = newAvg)
+                        } else pub
+                    }
+                    _profileState.value = currentState.copy(posts = updated)
+                }
+
+                val request = AssessmentRequest(color, fit, orig, style)
+                val response = RetrofitClient.publicationsApi.setAssessment(publicationId, request)
+                if (!response.isSuccessful) {
+                    android.util.Log.e("ProfileViewModel", "Error setting assessment: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error setting assessment", e)
+            }
+        }
+    }
+
+    fun loadComments(publicationId: String) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.publicationsApi.getComments(publicationId, null)
+                if (response.isSuccessful) {
+                    _comments.value = response.body() ?: emptyList()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error loading root comments", e)
+            }
+        }
+    }
+
+    fun loadReplies(publicationId: String, parentCommentId: String) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.publicationsApi.getComments(publicationId, parentCommentId)
+                if (response.isSuccessful) {
+                    val newReplies = response.body() ?: emptyList()
+                    val currentTree = _comments.value
+                    _comments.value = insertRepliesIntoTree(currentTree, parentCommentId, newReplies)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error loading replies", e)
+            }
+        }
+    }
+
+    private fun insertRepliesIntoTree(
+        comments: List<CommentDTO>,
+        targetParentId: String,
+        newReplies: List<CommentDTO>
+    ): List<CommentDTO> {
+        return comments.map { comment ->
+            if (comment.id == targetParentId) {
+                comment.copy(replies = newReplies)
+            } else if (comment.replies.isNotEmpty()) {
+                comment.copy(replies = insertRepliesIntoTree(comment.replies, targetParentId, newReplies))
+            } else {
+                comment
+            }
+        }
+    }
+
+    fun postComment(publicationId: String, content: String, parentCommentId: String? = null) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.publicationsApi.postComment(
+                    publicationId,
+                    CreateCommentRequest(content, parentCommentId)
+                )
+                if (response.isSuccessful) {
+                    loadComments(publicationId)
+                    refreshPostsOnly()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error posting comment", e)
+            }
+        }
+    }
+
+    fun deleteComment(publicationId: String, commentId: String) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.publicationsApi.deleteComment(publicationId, commentId)
+                if (response.isSuccessful) {
+                    loadComments(publicationId)
+                    refreshPostsOnly()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error deleting comment", e)
+            }
+        }
+    }
+
+    fun toggleCommentLike(publicationId: String, commentId: String) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.publicationsApi.toggleCommentLike(publicationId, commentId)
+                if (response.isSuccessful) {
+                    val currentTree = _comments.value
+                    _comments.value = updateLikeInTree(currentTree, commentId)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error toggling comment like", e)
+            }
+        }
+    }
+
+    private fun updateLikeInTree(comments: List<CommentDTO>, targetCommentId: String): List<CommentDTO> {
+        return comments.map { comment ->
+            if (comment.id == targetCommentId) {
+                val newIsLiked = !comment.isLiked
+                val newLikesCount = if (newIsLiked) comment.likesCount + 1 else comment.likesCount - 1
+                comment.copy(isLiked = newIsLiked, likesCount = newLikesCount)
+            } else if (comment.replies.isNotEmpty()) {
+                comment.copy(replies = updateLikeInTree(comment.replies, targetCommentId))
+            } else {
+                comment
+            }
+        }
+    }
+
+    fun loadAssessmentsList(publicationId: String) {
+        viewModelScope.launch {
+            _isAssessmentsLoading.value = true
+            _assessments.value = emptyList()
+            try {
+                val response = RetrofitClient.publicationsApi.getAssessmentsList(publicationId)
+                if (response.isSuccessful) {
+                    _assessments.value = response.body() ?: emptyList()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Error loading assessments", e)
+            } finally {
+                _isAssessmentsLoading.value = false
+            }
+        }
+    }
+
+    fun fetchAvatarsForPosts(posts: List<PublicationDTO>) {
+        viewModelScope.launch {
+            val currentMap = _userAvatars.value.toMutableMap()
+            val uniqueUserIds = posts.mapNotNull { it.authorId }
+                .distinct()
+                .filter { !currentMap.containsKey(it) }
+
+            uniqueUserIds.forEach { userId ->
+                try {
+                    val response = RetrofitClient.userApi.getUserProfile(userId)
+                    if (response.isSuccessful) {
+                        response.body()?.avatarUrl?.let { url ->
+                            currentMap[userId] = url
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("ProfileViewModel", "Error fetching avatar for user $userId", e)
+                }
+            }
+            _userAvatars.value = currentMap
         }
     }
 }

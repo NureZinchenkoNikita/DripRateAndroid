@@ -1,3 +1,4 @@
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 package com.example.driprate.ui.create
 
 import android.net.Uri
@@ -29,6 +30,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 
+import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.foundation.background
+import androidx.compose.ui.text.font.FontWeight
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun CreatePostScreen(
@@ -43,6 +50,8 @@ fun CreatePostScreen(
     val state by viewModel.state.collectAsState()
     val wardrobeItems by viewModel.wardrobeItems.collectAsState()
     val selectedWardrobeIds by viewModel.selectedWardrobeIds.collectAsState()
+    val allTags by viewModel.allTags.collectAsState()
+    val selectedTagIds by viewModel.selectedTagIds.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -63,158 +72,263 @@ fun CreatePostScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Create Post") },
+                title = { Text("New Post", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    TextButton(
+                        onClick = {
+                            imageUri?.let {
+                                viewModel.createPost(context, it, description, isUrgent)
+                            }
+                        },
+                        enabled = imageUri != null && description.isNotBlank() && state !is CreatePostState.Loading
+                    ) {
+                        Text(
+                            "Share",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (imageUri != null && description.isNotBlank())
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        )
                     }
                 }
             )
         }
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .padding(innerPadding)
-                .padding(16.dp)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            if (imageUri != null) {
-                AsyncImage(
-                    model = imageUri,
-                    contentDescription = "Selected image",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(250.dp)
-                        .clip(RoundedCornerShape(8.dp)),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Button(
-                    onClick = { launcher.launch("image/*") },
-                    modifier = Modifier.fillMaxWidth().height(100.dp)
-                ) {
-                    Text("Select Image")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            TextField(
-                value = description,
-                onValueChange = { description = it },
-                label = { Text("Description") },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Select Tags",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.align(Alignment.Start)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            val allTags by viewModel.allTags.collectAsState()
-            val selectedTagIds by viewModel.selectedTagIds.collectAsState()
-
-            if (allTags.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                // Image section - Instagram style square
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(60.dp),
+                        .aspectRatio(1f)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { launcher.launch("image/*") },
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                }
-            } else {
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    allTags.forEach { tag ->
-                        val isSelected = selectedTagIds.contains(tag.id)
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { viewModel.toggleTagSelection(tag.id) },
-                            label = { Text(tag.name) }
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().clickable { isUrgent = !isUrgent }
-            ) {
-                Checkbox(
-                    checked = isUrgent,
-                    onCheckedChange = { isUrgent = it }
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Request Urgent Rating")
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            Text("Tag Garments from Wardrobe", style = MaterialTheme.typography.titleSmall)
-            
-            LazyRow(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(wardrobeItems) { item ->
-                    val isSelected = selectedWardrobeIds.contains(item.id)
-                    Box(
-                        modifier = Modifier
-                            .size(80.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(
-                                width = 2.dp,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            .clickable { viewModel.toggleWardrobeSelection(item.id) }
-                    ) {
+                    if (imageUri != null) {
                         AsyncImage(
-                            model = item.imageUrl,
-                            contentDescription = item.name,
+                            model = imageUri,
+                            contentDescription = "Selected image",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
                         )
+                        // Tap to change overlay
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(12.dp)
+                                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("Change", color = Color.White, style = MaterialTheme.typography.labelMedium)
+                        }
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.AddAPhoto,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                "Select a photo of your look",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
+                }
+
+                Column(modifier = Modifier.padding(16.dp)) {
+                    // Description section
+                    OutlinedTextField(
+                        value = description,
+                        onValueChange = { description = it },
+                        placeholder = { Text("Write a caption...") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 100.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        )
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                    // Urgent Rating Switch
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isUrgent = !isUrgent }
+                            .padding(vertical = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Urgent Rating", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Ask community for immediate feedback",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                        }
+                        Switch(
+                            checked = isUrgent,
+                            onCheckedChange = { isUrgent = it }
+                        )
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                    // Wardrobe tagging section
+                    Text(
+                        text = "In this outfit",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Tag items from your wardrobe",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(wardrobeItems) { item ->
+                            val isSelected = selectedWardrobeIds.contains(item.id)
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.width(80.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(80.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .border(
+                                            width = 2.dp,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.5f),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .clickable { viewModel.toggleWardrobeSelection(item.id) }
+                                ) {
+                                    AsyncImage(
+                                        model = item.imageUrl,
+                                        contentDescription = item.name,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    if (isSelected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Default.Check, contentDescription = null, tint = Color.White)
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = item.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Unspecified
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Tags section
+                    Text(
+                        text = "Styles & Tags",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (allTags.isEmpty()) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    } else {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            allTags.forEach { tag ->
+                                val isSelected = selectedTagIds.contains(tag.id)
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { viewModel.toggleTagSelection(tag.id) },
+                                    label = { Text(tag.name) },
+                                    leadingIcon = if (isSelected) {
+                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                    } else null
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(40.dp))
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
+            // Loading Overlay
             if (state is CreatePostState.Loading) {
-                CircularProgressIndicator()
-            } else {
-                Button(
-                    onClick = {
-                        imageUri?.let {
-                            viewModel.createPost(context, it, description, isUrgent)
-                        }
-                    },
-                    enabled = imageUri != null && description.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth()
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f))
+                        .clickable(enabled = false) {},
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text("Post")
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CircularProgressIndicator()
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Creating your Drip...", style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
                 }
             }
 
             if (state is CreatePostState.Error) {
-                Text(
-                    text = (state as CreatePostState.Error).message,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
+                Snackbar(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+                    action = {
+                        TextButton(onClick = { viewModel.resetState() }) {
+                            Text("Dismiss")
+                        }
+                    }
+                ) {
+                    Text((state as CreatePostState.Error).message)
+                }
             }
         }
     }

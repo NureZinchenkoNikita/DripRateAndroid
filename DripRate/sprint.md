@@ -42,7 +42,7 @@
 | **38. Поиск**<br>Поиск Публикаций | Искать контент. | Ввод запроса -> Подгрузка результатов.<br>API: GET /api/Search/publications.<br>Переход: Выбор публикации -> детали. |  | TO DO |
 | **39. Поиск**<br>Поиск Пользователей | Искать людей. | Ввод запроса -> Подгрузка результатов.<br>API: GET /api/Search/users.<br>Переход: Выбор пользователя -> профиль. |  | TO DO |
 | **40. Модерация**<br>Жалоба (Report) | Репорт контента. | Выбор сущности -> Выбор причины -> Отправка.<br>API: POST /api/Reports. |  | TO DO |
-| **41. Игры**<br>First Impression | Интерактив 1. | Запрос задания -> Отправка ответа.<br>API: GET /api/Games/first-impression -> POST /api/Games/first-impression. | Статистика ответов видна в DTO поста. | TO DO |
-| **42. Игры**<br>Guess Price | Интерактив 2. | Запрос задания -> Отправка ответа.<br>API: GET /api/Games/guess-price -> POST /api/Games/guess-price. | Цены в долларах. | TO DO |
-| **43. Игры**<br>Tag Match | Интерактив 3. | Запрос задания -> Отправка ответа.<br>API: GET /api/Games/tag-match -> POST /api/Games/tag-match. |  | TO DO |
+| **41. Игры**<br>First Impression | Интерактив 1. | Запрос задания -> Отправка ответа.<br>API: GET /api/Games/first-impression -> POST /api/Games/first-impression. | Статистика ответов видна в DTO поста. | DONE |
+| **42. Игры**<br>Guess Price | Интерактив 2. | Запрос задания -> Отправка ответа.<br>API: GET /api/Games/guess-price -> POST /api/Games/guess-price. | Цены в долларах. | DONE |
+| **43. Игры**<br>Tag Match | Интерактив 3. | Запрос задания -> Отправка ответа.<br>API: GET /api/Games/tag-match -> POST /api/Games/tag-match. |  | DONE |
 | **44. Реклама**<br>Учет показов | Бизнес метрика. | Фоновая отправка события показа.<br>API: POST /api/Advertisements/{id}/view. |  | TO DO |

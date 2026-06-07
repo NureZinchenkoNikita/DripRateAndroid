@@ -1,3 +1,4 @@
+@file:OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.example.driprate.ui.profile
 
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -54,6 +55,17 @@ import java.io.File
 import java.io.FileOutputStream
 import android.net.Uri
 
+
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.example.driprate.ui.feed.*
+import androidx.compose.material.icons.filled.Close
+import java.util.Locale
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.ShoppingBag
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -235,6 +247,7 @@ fun ProfileScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileContent(
     user: UserDTO,
@@ -268,6 +281,24 @@ fun ProfileContent(
     var showAddWardrobeDialog by remember { mutableStateOf(false) }
     var selectedWardrobeItemForDetail by remember { mutableStateOf<WardrobeItemDTO?>(null) }
     var showEditWardrobeDialog by remember { mutableStateOf<WardrobeItemDTO?>(null) }
+    
+    // Detailed Post States
+    var selectedPostForDetail by remember { mutableStateOf<PublicationDTO?>(null) }
+    val myUserId by viewModel.myUserId.collectAsState()
+    val myCollections by viewModel.myCollections.collectAsState()
+    val userAvatars by viewModel.userAvatars.collectAsState()
+    val comments by viewModel.comments.collectAsState()
+    val assessmentsList by viewModel.assessments.collectAsState()
+    val isAssessmentsLoading by viewModel.isAssessmentsLoading.collectAsState()
+    
+    var showCommentsSheet by remember { mutableStateOf(false) }
+    var showAssessmentsSheet by remember { mutableStateOf(false) }
+    var showRateDialog by remember { mutableStateOf<String?>(null) }
+    var showCollectionPicker by remember { mutableStateOf<String?>(null) }
+    var showTaggedClothDialog by remember { mutableStateOf<String?>(null) }
+    var showReportDialogForTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    val sheetState = rememberModalBottomSheetState()
     val context = LocalContext.current
 
     val launcher = rememberLauncherForActivityResult(
@@ -284,6 +315,11 @@ fun ProfileContent(
             val body = MultipartBody.Part.createFormData("File", file.name, requestFile)
             onUpdateAvatar(body)
         }
+    }
+
+    // Trigger avatar fetching when posts change
+    LaunchedEffect(posts) {
+        viewModel.fetchAvatarsForPosts(posts)
     }
 
     Column(
@@ -390,7 +426,7 @@ fun ProfileContent(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 items(posts) { post ->
-                    Box {
+                    Box(modifier = Modifier.clickable { selectedPostForDetail = post }) {
                         AsyncImage(
                             model = post.imageUrl,
                             contentDescription = null,
@@ -538,6 +574,157 @@ fun ProfileContent(
         }
     }
 
+    // Detailed Post Dialog
+    if (selectedPostForDetail != null) {
+        val currentPub = posts.find { it.id == selectedPostForDetail!!.id } ?: selectedPostForDetail!!
+        
+        Dialog(
+            onDismissRequest = { selectedPostForDetail = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                Scaffold(
+                    topBar = {
+                        TopAppBar(
+                            title = { Text("Post") },
+                            navigationIcon = {
+                                IconButton(onClick = { selectedPostForDetail = null }) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                }
+                            }
+                        )
+                    }
+                ) { padding ->
+                    Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+                        LazyColumn {
+                            item {
+                                PublicationItem(
+                                    publication = currentPub.copy(authorAvatarUrl = userAvatars[currentPub.authorId]),
+                                    myUserId = myUserId,
+                                    onLikeClick = { viewModel.toggleLike(currentPub.id) },
+                                    onSaveClick = { viewModel.toggleSave(currentPub.id) },
+                                    onCollectionClick = { 
+                                        showCollectionPicker = currentPub.id 
+                                        viewModel.loadMyCollections()
+                                    },
+                                    onRatingRowClick = {
+                                        if (myUserId != null && currentPub.authorId == myUserId) {
+                                            viewModel.loadAssessmentsList(currentPub.id)
+                                            showAssessmentsSheet = true
+                                        } else {
+                                            showRateDialog = currentPub.id
+                                        }
+                                    },
+                                    onCommentsClick = {
+                                        viewModel.loadComments(currentPub.id)
+                                        showCommentsSheet = true
+                                    },
+                                    onUserClick = { userId ->
+                                        selectedPostForDetail = null
+                                        onUserClick(userId)
+                                    },
+                                    onTagClick = { tag ->
+                                        // Handle tag click if needed, or just close and navigate
+                                    },
+                                    onReportClick = { showReportDialogForTarget = Pair(currentPub.id, "Publication") }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Modal Sheets and Dialogs mirrored from FeedScreen
+    if (showCommentsSheet && selectedPostForDetail != null) {
+        ModalBottomSheet(
+            onDismissRequest = { showCommentsSheet = false },
+            sheetState = sheetState
+        ) {
+            CommentsSheetContent(
+                comments = comments,
+                myUserId = myUserId,
+                onPostComment = { text, parentId -> viewModel.postComment(selectedPostForDetail!!.id, text, parentId) },
+                onLoadReplies = { parentId -> viewModel.loadReplies(selectedPostForDetail!!.id, parentId) },
+                onDeleteComment = { commentId -> viewModel.deleteComment(selectedPostForDetail!!.id, commentId) },
+                onToggleLike = { commentId -> viewModel.toggleCommentLike(selectedPostForDetail!!.id, commentId) },
+                onReportCommentClick = { commentId ->
+                    showReportDialogForTarget = Pair(commentId, "Comment")
+                }
+            )
+        }
+    }
+
+    if (showAssessmentsSheet && selectedPostForDetail != null) {
+        ModalBottomSheet(
+            onDismissRequest = { showAssessmentsSheet = false },
+            sheetState = sheetState
+        ) {
+            AssessmentsSheetContent(
+                assessments = assessmentsList,
+                isLoading = isAssessmentsLoading,
+                onUserClick = { userId ->
+                    showAssessmentsSheet = false
+                    selectedPostForDetail = null
+                    onUserClick(userId)
+                }
+            )
+        }
+    }
+
+    if (showRateDialog != null) {
+        RatePostDialog(
+            onDismiss = { showRateDialog = null },
+            onSubmit = { color, fit, orig, style ->
+                viewModel.setAssessment(showRateDialog!!, color, fit, orig, style)
+                showRateDialog = null
+            }
+        )
+    }
+
+    if (showCollectionPicker != null) {
+        ModalBottomSheet(
+            onDismissRequest = { showCollectionPicker = null },
+            sheetState = sheetState
+        ) {
+            CollectionPickerSheet(
+                collections = myCollections,
+                onCollectionSelected = { collId ->
+                    viewModel.addToCollection(collId, showCollectionPicker!!)
+                    showCollectionPicker = null
+                },
+                onCreateNewCollection = { name ->
+                    viewModel.createCollection(name)
+                }
+            )
+        }
+    }
+
+    if (showTaggedClothDialog != null) {
+        TaggedClothDetailDialog(
+            clothId = showTaggedClothDialog!!,
+            onDismiss = { showTaggedClothDialog = null }
+        )
+    }
+
+    if (showReportDialogForTarget != null) {
+        ReportDialog(
+            onDismiss = { showReportDialogForTarget = null },
+            onSubmit = { reason ->
+                viewModel.sendReport(showReportDialogForTarget!!.first, showReportDialogForTarget!!.second, reason) { status ->
+                    showReportDialogForTarget = null
+                    val msg = when (status) {
+                        null -> "Report submitted successfully"
+                        "duplicate" -> "You have already reported this content"
+                        else -> "Failed to submit report"
+                    }
+                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
     if (showAddWardrobeDialog) {
         var name by remember { mutableStateOf("") }
         var brand by remember { mutableStateOf("") }
@@ -676,6 +863,7 @@ fun ProfileContent(
 
     if (selectedWardrobeItemForDetail != null) {
         val item = selectedWardrobeItemForDetail!!
+        val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
         AlertDialog(
             onDismissRequest = { selectedWardrobeItemForDetail = null },
             title = { Text(item.name) },
@@ -709,19 +897,41 @@ fun ProfileContent(
                     }
 
                     if (!item.storeLink.isNullOrBlank()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.Gray)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Shop Link",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.clickable {
-                                    // Open link or just display
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { 
+                                    try {
+                                        val url = if (!item.storeLink.startsWith("http://") && !item.storeLink.startsWith("https://")) {
+                                            "https://${item.storeLink}"
+                                        } else {
+                                            item.storeLink
+                                        }
+                                        uriHandler.openUri(url)
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("WardrobeDetail", "Failed to open URI", e)
+                                    }
                                 }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Shop Link",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                                )
+                            }
+                            Text(
+                                item.storeLink, 
+                                style = MaterialTheme.typography.bodySmall, 
+                                color = Color.Gray,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
-                        Text(item.storeLink, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     }
                 }
             },

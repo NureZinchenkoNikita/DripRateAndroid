@@ -1,3 +1,4 @@
+@file:OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.example.driprate.ui.feed
 
 import androidx.compose.foundation.clickable
@@ -12,6 +13,7 @@ import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.*
 import com.example.driprate.data.model.AssessmentDTO
@@ -44,15 +46,20 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Flag
 import com.example.driprate.ui.components.ReportDialog
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import com.example.driprate.data.model.FeedItem
+import com.example.driprate.data.model.AdvertisementDTO
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FeedScreen(
     viewModel: FeedViewModel = viewModel(),
@@ -60,7 +67,8 @@ fun FeedScreen(
     onProfileClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     onUserClick: (String) -> Unit = {},
-    onTagClick: (String) -> Unit = {}
+    onTagClick: (String) -> Unit = {},
+    onGameClick: (String) -> Unit = {}
 ) {
     val feedState by viewModel.feedState.collectAsState()
     val comments by viewModel.comments.collectAsState()
@@ -82,6 +90,7 @@ fun FeedScreen(
     val tabs = listOf("Global")
     val myUserId by viewModel.myUserId.collectAsState()
     val assessmentsList by viewModel.assessments.collectAsState()
+    val isAssessmentsLoading by viewModel.isAssessmentsLoading.collectAsState()
     var selectedPublicationIdForAssessments by remember { mutableStateOf<String?>(null) } // ДОДАЛИ
     var showAssessmentsSheet by remember { mutableStateOf(false) } // ДОДАЛИ
     var showReportDialogForTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -101,6 +110,22 @@ fun FeedScreen(
                     "Feeds",
                     modifier = Modifier.padding(16.dp),
                     style = MaterialTheme.typography.titleSmall
+                )
+                NavigationDrawerItem(
+                    label = { 
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Home, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("Global Feed")
+                        }
+                    },
+                    selected = selectedTabIndex == 0,
+                    onClick = {
+                        selectedTabIndex = 0
+                        currentTitle = "Global Feed"
+                        viewModel.loadGlobalFeed()
+                        scope.launch { drawerState.close() }
+                    }
                 )
                 NavigationDrawerItem(
                     label = { Text("Subscriptions") },
@@ -132,6 +157,55 @@ fun FeedScreen(
                         scope.launch { drawerState.close() }
                     }
                 )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text(
+                    "Games",
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.titleSmall
+                )
+                NavigationDrawerItem(
+                    label = { 
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Star, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("First Impression")
+                        }
+                    },
+                    selected = false,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        onGameClick("first_impression")
+                    }
+                )
+                NavigationDrawerItem(
+                    label = { 
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.AttachMoney, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("Guess the Price")
+                        }
+                    },
+                    selected = false,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        onGameClick("guess_price")
+                    }
+                )
+                NavigationDrawerItem(
+                    label = { 
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Style, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("Tag Match")
+                        }
+                    },
+                    selected = false,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        onGameClick("tag_match")
+                    }
+                )
             }
         }
     ) {
@@ -141,16 +215,16 @@ fun FeedScreen(
                 CenterAlignedTopAppBar(
                     title = { Text(currentTitle) }, // Динамічний заголовок
                     navigationIcon = {
-                        IconButton(onClick = onSearchClick) {
-                            Icon(Icons.Default.Search, contentDescription = "Search")
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Menu")
                         }
                     },
                     actions = {
+                        IconButton(onClick = onSearchClick) {
+                            Icon(Icons.Default.Search, contentDescription = "Search")
+                        }
                         IconButton(onClick = onProfileClick) {
                             Icon(Icons.Default.Person, contentDescription = "Profile")
-                        }
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Menu")
                         }
                     }
                 )
@@ -169,43 +243,53 @@ fun FeedScreen(
                     is FeedState.Success -> {
                         // ТРИГЕР ЗАВАНТАЖЕННЯ: як тільки прийшли пости, фоном запускаємо збір аватарок
                         LaunchedEffect(state.items) {
-                            viewModel.fetchAvatarsForPosts(state.items)
+                            val publications = state.items.filterIsInstance<FeedItem.Publication>().map { it.data }
+                            viewModel.fetchAvatarsForPosts(publications)
                         }
 
                         LazyColumn {
-                            items(state.items) { publication ->
-                                // Отримуємо аватарку з нашого кешу за ID автора
-                                val cachedAvatar = userAvatars[publication.authorId]
+                            items(state.items) { item ->
+                                when (item) {
+                                    is FeedItem.Publication -> {
+                                        val publication = item.data
+                                        // Отримуємо аватарку з нашого кешу за ID автора
+                                        val cachedAvatar = userAvatars[publication.authorId]
 
-                                PublicationItem(
-                                    publication = publication.copy(authorAvatarUrl = cachedAvatar),
-                                    myUserId = myUserId, // ДОДАЄМО передачу твого ID
-                                    onLikeClick = { viewModel.toggleLike(publication.id) },
-                                    onSaveClick = { viewModel.toggleSave(publication.id) },
-                                    onCollectionClick = { 
-                                        showCollectionPicker = publication.id 
-                                        viewModel.loadMyCollections()
-                                    },
-                                    onRatingRowClick = {
-                                        if (myUserId != null && publication.authorId == myUserId) {
-                                            // Якщо це мій пост -> виїжджає список тих, хто оцінив
-                                            selectedPublicationIdForAssessments = publication.id
-                                            viewModel.loadAssessmentsList(publication.id)
-                                            showAssessmentsSheet = true
-                                        } else {
-                                            // Якщо чужий -> відкриваємо діалог із 4 повзунками
-                                            showRateDialog = publication.id
-                                        }
-                                    },
-                                    onCommentsClick = {
-                                        selectedPublicationIdForComments = publication.id
-                                        viewModel.loadComments(publication.id)
-                                        showBottomSheet = true
-                                    },
-                                    onUserClick = onUserClick,
-                                    onTagClick = onTagClick,
-                                    onReportClick = { showReportDialogForTarget = Pair(publication.id, "Publication") }
-                                )
+                                        PublicationItem(
+                                            publication = publication.copy(authorAvatarUrl = cachedAvatar),
+                                            myUserId = myUserId,
+                                            onLikeClick = { viewModel.toggleLike(publication.id) },
+                                            onSaveClick = { viewModel.toggleSave(publication.id) },
+                                            onCollectionClick = { 
+                                                showCollectionPicker = publication.id 
+                                                viewModel.loadMyCollections()
+                                            },
+                                            onRatingRowClick = {
+                                                if (myUserId != null && publication.authorId == myUserId) {
+                                                    selectedPublicationIdForAssessments = publication.id
+                                                    viewModel.loadAssessmentsList(publication.id)
+                                                    showAssessmentsSheet = true
+                                                } else {
+                                                    showRateDialog = publication.id
+                                                }
+                                            },
+                                            onCommentsClick = {
+                                                selectedPublicationIdForComments = publication.id
+                                                viewModel.loadComments(publication.id)
+                                                showBottomSheet = true
+                                            },
+                                            onUserClick = onUserClick,
+                                            onTagClick = onTagClick,
+                                            onReportClick = { showReportDialogForTarget = Pair(publication.id, "Publication") }
+                                        )
+                                    }
+                                    is FeedItem.Advertisement -> {
+                                        AdItem(
+                                            ad = item.data,
+                                            onAdShow = { viewModel.registerAdView(item.data.id) }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -225,6 +309,7 @@ fun FeedScreen(
                 ) {
                     AssessmentsSheetContent(
                         assessments = assessmentsList,
+                        isLoading = isAssessmentsLoading,
                         onUserClick = { userId ->
                             showAssessmentsSheet = false
                             onUserClick(userId) // Перехід у профіль користувача
@@ -258,8 +343,8 @@ fun FeedScreen(
                     )
                 }
             }
-            }
-        if (showRateDialog != null) {
+
+            if (showRateDialog != null) {
             RatePostDialog(
                 onDismiss = { showRateDialog = null },
                 onSubmit = { color, fit, orig, style ->
@@ -362,7 +447,88 @@ fun FeedScreen(
             }
         }
     }
+}
 
+@Composable
+fun AdItem(
+    ad: AdvertisementDTO,
+    onAdShow: () -> Unit
+) {
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+
+    // Реєструємо перегляд при появі на екрані
+    LaunchedEffect(ad.id) {
+        onAdShow()
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(8.dp)
+            .clickable {
+                ad.realTargetUrl?.let { url ->
+                    try {
+                        val fullUrl = if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                            "https://$url"
+                        } else {
+                            url
+                        }
+                        uriHandler.openUri(fullUrl)
+                    } catch (e: Exception) {
+                        android.util.Log.e("AdItem", "Failed to open URL: $url", e)
+                    }
+                }
+            },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                AsyncImage(
+                    model = ad.realImageUrl,
+                    contentDescription = "Ad image",
+                    modifier = Modifier.fillMaxWidth(),
+                    contentScale = ContentScale.FillWidth,
+                    placeholder = rememberVectorPainter(Icons.Default.Image),
+                    error = rememberVectorPainter(Icons.Default.Image),
+                    onError = {
+                        android.util.Log.e("AdItem", "Image load failed for URL: ${ad.realImageUrl}, Error: ${it.result.throwable}")
+                    }
+                )
+                
+                // Label "AD"
+                Surface(
+                    color = Color.Black.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(bottomEnd = 8.dp),
+                    modifier = Modifier.align(Alignment.TopStart)
+                ) {
+                    Text(
+                        text = "AD",
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.padding(12.dp)) {
+                ad.title?.let {
+                    Text(text = it, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                ad.description?.let {
+                    Text(text = it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+                }
+                ad.realAdvertiserName?.let {
+                    Text(
+                        text = "By $it",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun PublicationItem(
@@ -416,9 +582,8 @@ fun PublicationItem(
                 model = publication.imageUrl,
                 contentDescription = "Post image",
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(300.dp),
-                contentScale = ContentScale.Crop,
+                    .fillMaxWidth(),
+                contentScale = ContentScale.FillWidth,
                 placeholder = rememberVectorPainter(Icons.Default.Image),
                 error = rememberVectorPainter(Icons.Default.Image),
                 onError = {
@@ -800,14 +965,19 @@ fun CommentNode(
 @Composable
 fun AssessmentsSheetContent(
     assessments: List<AssessmentDTO>,
+    isLoading: Boolean,
     onUserClick: (String) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxHeight(0.6f).padding(16.dp)) {
         Text("Ratings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
 
-        if (assessments.isEmpty()) {
+        if (isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
+            }
+        } else if (assessments.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No ratings yet", style = MaterialTheme.typography.bodyLarge, color = Color.Gray)
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -903,6 +1073,75 @@ fun RatingSliderRow(label: String, value: Float, onValueChange: (Float) -> Unit)
 }
 
 @Composable
+fun CollectionPickerSheet(
+    collections: List<com.example.driprate.data.api.CollectionDTO>,
+    onCollectionSelected: (String) -> Unit,
+    onCreateNewCollection: (String) -> Unit
+) {
+    var showCreateCollectionDialog by remember { mutableStateOf(false) }
+    
+    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+        Text("Add to Collection", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 16.dp))
+        
+        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+            item {
+                ListItem(
+                    headlineContent = { Text("+ Create New Collection", color = MaterialTheme.colorScheme.primary) },
+                    modifier = Modifier.clickable {
+                        showCreateCollectionDialog = true
+                    }
+                )
+            }
+            // Фільтруємо, щоб не показувати системні колекції "Saved" і "Liked"
+            val customCollections = collections.filter {
+                it.name.lowercase() != "likes" &&
+                        it.name.lowercase() != "saved" &&
+                        it.name.lowercase() != "збережене"
+            }
+
+            items(customCollections) { collection ->
+                ListItem(
+                    headlineContent = { Text(collection.name) },
+                    modifier = Modifier.clickable {
+                        onCollectionSelected(collection.id)
+                    }
+                )
+            }
+        }
+    }
+
+    if (showCreateCollectionDialog) {
+        var newCollectionName by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showCreateCollectionDialog = false },
+            title = { Text("New Collection") },
+            text = {
+                TextField(
+                    value = newCollectionName,
+                    onValueChange = { newCollectionName = it },
+                    placeholder = { Text("Name") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (newCollectionName.isNotBlank()) {
+                        onCreateNewCollection(newCollectionName)
+                        showCreateCollectionDialog = false
+                    }
+                }) {
+                    Text("Create")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateCollectionDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
 fun TaggedClothDetailDialog(
     clothId: String,
     onDismiss: () -> Unit
@@ -910,6 +1149,7 @@ fun TaggedClothDetailDialog(
     var fullCloth by remember { mutableStateOf<WardrobeItemDTO?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
 
     LaunchedEffect(clothId) {
         try {
@@ -967,16 +1207,41 @@ fun TaggedClothDetailDialog(
                     }
 
                     if (!item.storeLink.isNullOrBlank()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.Gray)
-                            Spacer(modifier = Modifier.width(4.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { 
+                                    try {
+                                        val url = if (!item.storeLink.startsWith("http://") && !item.storeLink.startsWith("https://")) {
+                                            "https://${item.storeLink}"
+                                        } else {
+                                            item.storeLink
+                                        }
+                                        uriHandler.openUri(url)
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("TaggedClothDialog", "Failed to open URI", e)
+                                    }
+                                }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Shop Link",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                                )
+                            }
                             Text(
-                                text = "Shop Link",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.secondary
+                                item.storeLink, 
+                                style = MaterialTheme.typography.bodySmall, 
+                                color = Color.Gray,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
-                        Text(item.storeLink, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     }
                 }
             }

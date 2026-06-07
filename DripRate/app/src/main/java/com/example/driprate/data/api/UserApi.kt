@@ -18,7 +18,7 @@ interface UserApi {
     @PATCH("api/Users/@me")
     suspend fun updateProfile(@Body profile: UpdateProfileRequest): Response<UserDTO>
 
-    @POST("api/Users/@me/change-password")
+    @PUT("api/Auth/password")
     suspend fun changePassword(@Body request: ChangePasswordRequest): Response<Unit>
 
 

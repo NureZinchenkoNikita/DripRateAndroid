@@ -81,9 +81,27 @@ class MainActivity : ComponentActivity() {
                                 onTagClick = { tag ->
                                     initialSearchQuery = "#$tag"
                                     currentScreen = "search"
+                                },
+                                onGameClick = { gameType ->
+                                    currentScreen = gameType
                                 }
                             )
                         }
+                    }
+                    "first_impression" -> {
+                        com.example.driprate.ui.games.FirstImpressionScreen(
+                            onBackClick = { currentScreen = "feed" }
+                        )
+                    }
+                    "guess_price" -> {
+                        com.example.driprate.ui.games.GuessPriceScreen(
+                            onBackClick = { currentScreen = "feed" }
+                        )
+                    }
+                    "tag_match" -> {
+                        com.example.driprate.ui.games.TagMatchScreen(
+                            onBackClick = { currentScreen = "feed" }
+                        )
                     }
                     "search" -> {
                         SearchScreen(
@@ -127,7 +145,11 @@ class MainActivity : ComponentActivity() {
                             CollectionDetailsScreen(
                                 collectionId = id,
                                 collectionName = selectedCollectionName,
-                                onBackClick = { currentScreen = "profile" }
+                                onBackClick = { currentScreen = "profile" },
+                                onUserClick = { userId ->
+                                    selectedUserId = userId
+                                    currentScreen = "profile"
+                                }
                             )
                         } ?: run { currentScreen = "profile" }
                     }

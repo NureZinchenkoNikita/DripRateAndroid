@@ -111,4 +111,22 @@ object RetrofitClient {
             .build()
             .create(ReportsApi::class.java)
     }
+
+    val gamesApi: GamesApi by lazy {
+        Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+            .create(GamesApi::class.java)
+    }
+
+    val advertisementsApi: AdvertisementsApi by lazy {
+        Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+            .create(AdvertisementsApi::class.java)
+    }
 }
